@@ -27,9 +27,9 @@ contract DeployUserSafeSetup is Utils {
     address etherFiWallet;
     address owner;
     uint256 delay = 300; // 5 min
-    uint256 ltv = 70e18;
+    uint256 ltv = 80e18;
 
-    uint256 liquidationThreshold = 60e18; // 60%
+    uint256 liquidationThreshold = 85e18; // 60%
     uint256 borrowApyPerSecond = 634195839675; // 20% APR -> 20e18 / (365 days in seconds)
 
     // Shivam Metamask wallets
