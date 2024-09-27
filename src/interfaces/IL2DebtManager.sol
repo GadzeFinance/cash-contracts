@@ -162,6 +162,7 @@ interface IL2DebtManager {
     error SharesCannotBeLessThanMinShares();
     error SupplyCapBreached();
     error OnlyUserSafe();
+    error AaveAdapterNotSet();
 
     /**
      * @notice Function to fetch the address of the Cash Data Provider.
@@ -500,17 +501,6 @@ interface IL2DebtManager {
     function getCollateralValueInUsdc(
         address user
     ) external view returns (uint256);
-
-    /**
-     * @notice Function to manage funds via supply, borrow, repay and withdraw from market.
-     * @notice Can only be called by an account with FUND_MANAGER_ROLE.
-     * @param marketOperationType Market operation type.
-     * @param data Data for the operation.
-     */
-    function fundManagementOperation(
-        uint8 marketOperationType,
-        bytes calldata data
-    ) external;
 
     /**
      * @notice Function to fetch the user collateral for a particular token.

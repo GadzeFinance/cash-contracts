@@ -24,6 +24,8 @@ import {IEtherFiCashAaveV3Adapter, EtherFiCashAaveV3Adapter} from "../../src/ada
 import {MockAaveAdapter} from "../../src/mocks/MockAaveAdapter.sol";
 import {IWeETH} from "../../src/interfaces/IWeETH.sol";
 import {UUPSProxy} from "../../src/UUPSProxy.sol";
+import {MockCashTokenWrapperFactory} from "../../src/mocks/MockCashTokenWrapperFactory.sol";
+import {MockCashWrappedERC20} from "../../src/mocks/MockCashWrappedERC20.sol";
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
 
 contract UserSafeSetup is Utils {
@@ -44,6 +46,7 @@ contract UserSafeSetup is Utils {
 
     ERC20 usdc;
     ERC20 weETH;
+    ERC20 weth;
     SwapperOpenOcean swapper;
     PriceProvider priceProvider;
     CashDataProvider cashDataProvider;
@@ -53,7 +56,7 @@ contract UserSafeSetup is Utils {
     uint256 collateralLimit = 10000e6;
     uint64 delay = 10;
     address etherFiCashMultisig = makeAddr("multisig");
-    address etherFiCashDebtManager;
+    IL2DebtManager etherFiCashDebtManager;
     address etherFiWallet = makeAddr("etherFiWallet");
 
     address weEthWethOracle;
@@ -79,6 +82,8 @@ contract UserSafeSetup is Utils {
     uint64 borrowApy = 1e16; // 0.01% per second
     ChainConfig chainConfig;
     uint256 supplyCap = 10000 ether;
+    MockCashTokenWrapperFactory wrapperTokenFactory;
+    MockCashWrappedERC20 wweETH;
 
     function setUp() public virtual {
         chainId = vm.envString("TEST_CHAIN");
@@ -90,6 +95,7 @@ contract UserSafeSetup is Utils {
         if (!isFork(chainId)) {
             usdc = ERC20(address(new MockERC20("usdc", "usdc", 6)));
             weETH = ERC20(address(new MockERC20("weETH", "weETH", 18)));
+            weth = ERC20(address(new MockERC20("weth", "WETH", 18)));
 
             swapper = SwapperOpenOcean(address(new MockSwapper()));
             priceProvider = PriceProvider(
@@ -102,6 +108,7 @@ contract UserSafeSetup is Utils {
 
             usdc = ERC20(chainConfig.usdc);
             weETH = ERC20(chainConfig.weETH);
+            weth = ERC20(chainConfig.weth);
             weEthWethOracle = chainConfig.weEthWethOracle;
             ethUsdcOracle = chainConfig.ethUsdcOracle;
             swapRouterOpenOcean = chainConfig.swapRouterOpenOcean;
@@ -161,6 +168,9 @@ contract UserSafeSetup is Utils {
             );
         }
 
+        address cashWrappedERC20Impl = address(new MockCashWrappedERC20());
+        wrapperTokenFactory = new MockCashTokenWrapperFactory(address(cashWrappedERC20Impl), owner);
+
         address cashDataProviderImpl = address(new CashDataProvider());
         cashDataProvider = CashDataProvider(
             address(new UUPSProxy(cashDataProviderImpl, ""))
@@ -186,7 +196,7 @@ contract UserSafeSetup is Utils {
         address debtManagerInitializer = address(new DebtManagerInitializer());
         address debtManagerProxy = address(new UUPSProxy(debtManagerInitializer, ""));
 
-        etherFiCashDebtManager = address(IL2DebtManager(address(debtManagerProxy)));
+        etherFiCashDebtManager = IL2DebtManager(address(debtManagerProxy));
 
         (etherFiRecoverySigner, etherFiRecoverySignerPk) = makeAddrAndKey(
             "etherFiRecoverySigner"
@@ -223,17 +233,18 @@ contract UserSafeSetup is Utils {
             delay,
             etherFiWallet,
             etherFiCashMultisig,
-            etherFiCashDebtManager,
+            address(etherFiCashDebtManager),
             address(priceProvider),
             address(swapper),
             address(aaveV3Adapter),
             address(factory)
         );
 
-        DebtManagerInitializer(etherFiCashDebtManager).initialize(
+        DebtManagerInitializer(address(etherFiCashDebtManager)).initialize(
             owner,
             uint48(delay),
-            address(cashDataProvider)
+            address(cashDataProvider),
+            address(wrapperTokenFactory)
         );
         DebtManagerCore(debtManagerProxy).upgradeToAndCall(debtManagerCoreImpl, "");
         DebtManagerCore debtManagerCore = DebtManagerCore(debtManagerProxy);
@@ -267,6 +278,30 @@ contract UserSafeSetup is Utils {
         deal(address(weETH), alice, 1000 ether);
         deal(address(usdc), alice, 1 ether);
         deal(address(usdc), address(swapper), 1 ether);
+
+        // Set weth as cash wrapped ERC20 since it has a cap on Aave
+        wweETH = MockCashWrappedERC20(wrapperTokenFactory.deployWrapper(address(weETH)));
+        vm.etch(address(weth), address(wweETH).code);
+        wweETH = MockCashWrappedERC20(address(weth));
+        wrapperTokenFactory.setWrappedTokenAddress(address(weETH), address(wweETH));
+        wweETH.init(address(wrapperTokenFactory), address(weETH), "wweETH", "wweETH", 18);
+
+        address[] memory minters = new address[](1);
+        minters[0] = address(etherFiCashDebtManager);
+        bool[] memory mintersWhitelist = new bool[](1);
+        mintersWhitelist[0] = true;
+
+        address[] memory recipients = new address[](2);
+        
+        if (isScroll(chainId)) recipients[0] = 0xf301805bE1Df81102C957f6d4Ce29d2B8c056B2a; // aWeth token
+        else recipients[0] = address(MockAaveAdapter(address(aaveV3Adapter)).aave());
+        recipients[1] = address(etherFiCashDebtManager);
+        bool[] memory recipientsWhitelist = new bool[](2);
+        recipientsWhitelist[0] = true;
+        recipientsWhitelist[1] = true;
+
+        wrapperTokenFactory.whitelistMinters(address(weETH), minters, mintersWhitelist);
+        wrapperTokenFactory.whitelistRecipients(address(weETH), recipients, recipientsWhitelist);
 
         vm.stopPrank();
     }

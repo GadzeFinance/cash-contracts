@@ -13,11 +13,13 @@ import {MockAaveAdapter} from "../../src/mocks/MockAaveAdapter.sol";
 import {MockPriceProvider} from "../../src/mocks/MockPriceProvider.sol";
 import {PriceProvider} from "../../src/oracle/PriceProvider.sol";
 import {IL2DebtManager} from "../../src/interfaces/IL2DebtManager.sol";
+import {UUPSProxy} from "../../src/UUPSProxy.sol";
 import {CashDataProvider} from "../../src/utils/CashDataProvider.sol";
 import {DebtManagerCore} from "../../src/debt-manager/DebtManagerCore.sol";
 import {DebtManagerAdmin} from "../../src/debt-manager/DebtManagerAdmin.sol";
-import {DebtManagerInitializer} from "../../src/debt-manager/DebtManagerInitializer.sol";import {IWeETH} from "../../src/interfaces/IWeETH.sol";
-import {UUPSProxy} from "../../src/UUPSProxy.sol";
+import {DebtManagerInitializer} from "../../src/debt-manager/DebtManagerInitializer.sol";
+import {MockCashTokenWrapperFactory} from "../../src/mocks/MockCashTokenWrapperFactory.sol";
+import {MockCashWrappedERC20} from "../../src/mocks/MockCashWrappedERC20.sol";
 import {IAggregatorV3} from "../../src/interfaces/IAggregatorV3.sol";
 
 contract DebtManagerSetup is Utils {
@@ -39,6 +41,7 @@ contract DebtManagerSetup is Utils {
 
     ERC20 weETH;
     ERC20 usdc;
+    ERC20 weth;
     string chainId;
     address weEthWethOracle;
     address ethUsdcOracle;
@@ -50,6 +53,7 @@ contract DebtManagerSetup is Utils {
     uint80 liquidationThreshold = 60e18; // 60%
     uint96 liquidationBonus = 5e18; // 5%
     uint64 borrowApyPerSecond = 1e16; // 0.01%
+    uint128 minShares;
 
     uint64 delay = 10;
     address etherFiWallet = makeAddr("etherFiWallet");
@@ -59,6 +63,8 @@ contract DebtManagerSetup is Utils {
 
     DebtManagerCore debtManagerCore;
     DebtManagerAdmin debtManagerAdmin;
+    MockCashTokenWrapperFactory wrapperTokenFactory;
+    MockCashWrappedERC20 wweETH;
 
     function setUp() public virtual {
         chainId = vm.envString("TEST_CHAIN");
@@ -70,6 +76,7 @@ contract DebtManagerSetup is Utils {
 
             usdc = ERC20(address(new MockERC20("USDC", "USDC", 6)));
             weETH = ERC20(address(new MockERC20("weETH", "weETH", 18)));
+            weth = ERC20(address(new MockERC20("weth", "weth", 18)));
             priceProvider = PriceProvider(
                 address(new MockPriceProvider(mockWeETHPriceInUsd))
             );
@@ -83,6 +90,7 @@ contract DebtManagerSetup is Utils {
 
             usdc = ERC20(chainConfig.usdc);
             weETH = ERC20(chainConfig.weETH);
+            weth = ERC20(chainConfig.weth);
 
             aavePool = IPool(chainConfig.aaveV3Pool);
             aaveV3PoolDataProvider = IPoolDataProvider(
@@ -136,6 +144,9 @@ contract DebtManagerSetup is Utils {
             );
         }
 
+        address cashWrappedERC20Impl = address(new MockCashWrappedERC20());
+        wrapperTokenFactory = new MockCashTokenWrapperFactory(address(cashWrappedERC20Impl), owner);
+
         address cashDataProviderImpl = address(new CashDataProvider());
         cashDataProvider = CashDataProvider(
             address(new UUPSProxy(cashDataProviderImpl, ""))
@@ -159,9 +170,11 @@ contract DebtManagerSetup is Utils {
             memory borrowTokenConfig = new IL2DebtManager.BorrowTokenConfigData[](
                 1
             );
+
+        minShares = uint128(1 * 10 ** usdc.decimals());
         borrowTokenConfig[0] = IL2DebtManager.BorrowTokenConfigData({
            borrowApy: borrowApyPerSecond,
-           minShares: uint128(1 * 10 ** usdc.decimals())
+           minShares: minShares
         });
 
         address debtManagerCoreImpl = address(new DebtManagerCore());
@@ -189,7 +202,8 @@ contract DebtManagerSetup is Utils {
         DebtManagerInitializer(address(debtManager)).initialize(
             owner,
             uint48(delay),
-            address(cashDataProvider)
+            address(cashDataProvider),
+            address(wrapperTokenFactory)
         );
 
         DebtManagerCore(debtManagerProxy).upgradeToAndCall(debtManagerCoreImpl, "");
@@ -201,6 +215,30 @@ contract DebtManagerSetup is Utils {
             borrowApyPerSecond, 
             uint128(1 * 10 ** usdc.decimals())
         );
+
+        // Set weth as cash wrapped ERC20 since it has a cap on Aave
+        wweETH = MockCashWrappedERC20(wrapperTokenFactory.deployWrapper(address(weETH)));
+        vm.etch(address(weth), address(wweETH).code);
+        wweETH = MockCashWrappedERC20(address(weth));
+        wrapperTokenFactory.setWrappedTokenAddress(address(weETH), address(wweETH));
+        wweETH.init(address(wrapperTokenFactory), address(weETH), "wweETH", "wweETH", 18);
+
+        address[] memory minters = new address[](1);
+        minters[0] = address(debtManager);
+        bool[] memory mintersWhitelist = new bool[](1);
+        mintersWhitelist[0] = true;
+
+        address[] memory recipients = new address[](2);
+        
+        if (isScroll(chainId)) recipients[0] = 0xf301805bE1Df81102C957f6d4Ce29d2B8c056B2a; // aWeth token
+        else recipients[0] = address(MockAaveAdapter(address(aaveV3Adapter)).aave());
+        recipients[1] = address(debtManager);
+        bool[] memory recipientsWhitelist = new bool[](2);
+        recipientsWhitelist[0] = true;
+        recipientsWhitelist[1] = true;
+
+        wrapperTokenFactory.whitelistMinters(address(weETH), minters, mintersWhitelist);
+        wrapperTokenFactory.whitelistRecipients(address(weETH), recipients, recipientsWhitelist);
 
         vm.stopPrank();
         

@@ -9,6 +9,7 @@ struct ChainConfig {
     string rpc;
     address weth;
     address usdc;
+    address usdt;
     address weETH;
     address weEthWethOracle;
     address ethUsdcOracle;
@@ -52,6 +53,11 @@ contract Utils is Test {
         config.usdc = stdJson.readAddress(
             inputJson,
             string.concat(".", chainId, ".", "usdc")
+        );
+
+        config.usdt = stdJson.readAddress(
+            inputJson,
+            string.concat(".", chainId, ".", "usdt")
         );
 
         config.weETH = stdJson.readAddress(
@@ -110,9 +116,10 @@ contract Utils is Test {
         address to,
         address srcToken,
         address dstToken,
-        uint256 amount
+        uint256 amount,
+        uint8 srcTokenDecimals
     ) internal returns (bytes memory data) {
-        string[] memory inputs = new string[](9);
+        string[] memory inputs = new string[](10);
         inputs[0] = "npx";
         inputs[1] = "ts-node";
         inputs[2] = "test/getQuote1Inch.ts";
@@ -122,6 +129,7 @@ contract Utils is Test {
         inputs[6] = vm.toString(srcToken);
         inputs[7] = vm.toString(dstToken);
         inputs[8] = vm.toString(amount);
+        inputs[9] = vm.toString(srcTokenDecimals);
 
         return vm.ffi(inputs);
     }
@@ -132,9 +140,10 @@ contract Utils is Test {
         address to,
         address srcToken,
         address dstToken,
-        uint256 amount
+        uint256 amount,
+        uint8 srcTokenDecimals
     ) internal returns (bytes memory data) {
-        string[] memory inputs = new string[](9);
+        string[] memory inputs = new string[](10);
         inputs[0] = "npx";
         inputs[1] = "ts-node";
         inputs[2] = "test/getQuoteOpenOcean.ts";
@@ -144,6 +153,7 @@ contract Utils is Test {
         inputs[6] = vm.toString(srcToken);
         inputs[7] = vm.toString(dstToken);
         inputs[8] = vm.toString(amount);
+        inputs[9] = vm.toString(srcTokenDecimals);
 
         return vm.ffi(inputs);
     }

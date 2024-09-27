@@ -11,6 +11,7 @@ contract CashTokenWrapperFactory is UpgradeableBeacon {
     
     event WrappedTokenDeployed(address token);
 
+    error InvalidValue();
     error WrappedTokenAlreadyExists();
     error WrappedTokenDoesntExists();
 
@@ -19,7 +20,8 @@ contract CashTokenWrapperFactory is UpgradeableBeacon {
         address _owner
     ) UpgradeableBeacon(_implementation, _owner) {}
 
-    function deployWrapper(address inputToken) external onlyOwner returns (address) {
+    function deployWrapper(address inputToken) external virtual onlyOwner returns (address) {
+        if (inputToken == address(0)) revert InvalidValue();
         if (cashWrappedToken[inputToken] != address(0)) revert WrappedTokenAlreadyExists();
         bytes memory data = abi.encodeWithSelector(
             CashWrappedERC20.initialize.selector, 
