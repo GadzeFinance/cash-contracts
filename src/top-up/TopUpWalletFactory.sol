@@ -38,6 +38,7 @@ contract TopUpWalletFactory is Initializable, UUPSUpgradeable, AccessControlDefa
     error ScrollSafeNotSet();
     error StargatePoolNotSet();
     error InsufficientFeeToCoverCost();
+    error StargateValueInvalid();
 
     constructor(uint32 _scrollDestEid) {
         scrollDestEid = _scrollDestEid;
@@ -74,6 +75,8 @@ contract TopUpWalletFactory is Initializable, UUPSUpgradeable, AccessControlDefa
 
         for (uint256 i = 0; i < len; ) {
             if (assets[i] == address(0) || pools[i] == address(0)) revert InvalidValue();
+            if (IStargate(pools[i]).token() != assets[i]) revert StargateValueInvalid();
+
             stargatePool[assets[i]] = pools[i];
             unchecked {
                 ++i;

@@ -16,6 +16,7 @@ struct ChainConfig {
     address aaveV3Pool;
     address aaveV3PoolDataProvider;
     address stargateUsdcPool;
+    address scrollSafe;
 }
 
 contract Utils is Script {
@@ -82,6 +83,11 @@ contract Utils is Script {
         config.stargateUsdcPool = stdJson.readAddress(
             inputJson,
             string.concat(".", chainId, ".", "stargateUsdcPool")
+        );
+
+        config.scrollSafe = stdJson.readAddress(
+            inputJson,
+            string.concat(".", chainId, ".", "scrollSafe")
         );
 
         return config;
